@@ -59,6 +59,17 @@ It scans a PGN file, jumps to **Move 7** for example, analyzes the position, gra
 
 ---
 
+## 🚀 Detailed Best Practices 
+
+1.  **Utilize a chess GUI:** Utilize Lucas chess or SCID to create a PGN of filtered games for your book, This is your base. This eliminates the need to use book creation tools and have to Go to the engine folder and import the engines book.bin (which is actually just the authors tuning not really just the engines tuned replies, or it is the NNUE baked in responses which my tool will extract anyway.)
+2.  **After running the Tidypy tool** Utilize a GUI like Lucas Chess to Import your newly created PGN, and create your opening book with GUI Tools in Lucas; the PGN Import suggested settings are **"Uniform Distribution, MAX PLY 60, MIN Games=1, Only white/black=UN-Checked"**.  Critical. This tidypy-tool generates specific candidate moves (e.g., 2 candidates). Since each appears only once in your PGN, "Uniform" ensures the engine picks any of them with equal probability. If you chose "Proportional," it wouldn't make sense because the sample size is 1. MIN Games 1, because each variation will be unique. Un-checked Only white/black, because this tool already does this as its required by my tool to create a proper Reperitoire. 
+3.  **File Size:** Some OS versions and tools like Kate for linux have Character restraints on 'how big' a text file can be 64k characters for example. Also GUI import book tools break often if the PGN is larger then 24MB for example. Keep your file size small and tight, importing 5 times is better then troubleshooting 1 corrupt output file you spent hours computing. 
+4.  **Candidate Moves:** Keep it to 1-2, 2 candidates slows the app down by 50%, 3 candidate moves exponentially increases file size and increase time to complete performance drops to %25.  Besides you want 1-2 candidates only as your UCI engine parameters are scanning for that, Engines have a Multi-PV even when selecting 1 candidate move.  My app uses logic to dictate what is a blunder, and what is mainline by comparing PV stdout of the engines centipawn evaluation.  3 candidate moves and you will be going on vacation.
+5.  **MAX Line:**  set to 24, with analysis of engine tournament play, I have found most engines break at move 26-27, for many out of scope reasons, I choose NOT to create a Range, because this breaks most import PGN book tools as the lines are truncated. If you have a specific need for middlegame analysis please create an Issue request, we might do a fork build, this tool is not for position EPD analysis stockfish has that covered. I do with Lichess would release their Dev Analysis options.
+6.  **Your Database:**  Lichess Elite Database by Nikonoe, Lumbra's Gigabase, Cassandra DB, OpeningTree.org, CCRL computer chess archive, FICS, Create an engine tournament, or Create one with Norman Polock Position Tool in Lucas Chess for example.
+
+---
+
 ## 🛠️ Developer Setup
 
 If you wish to contribute or run from source:
