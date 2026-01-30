@@ -3,6 +3,7 @@
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import time
 
 from pathlib import Path
 from typing import List, Optional, Dict
@@ -43,6 +44,7 @@ class TidypyWindow(QMainWindow):
         self.total_games = 0
         self.num_workers = 0
         self.current_config: Optional[AnalysisConfig] = None
+        self._analysis_start_time: float = 0.0
         
         self.setWindowTitle("Tidypy - Chess Repertoire Builder")
         self.setMinimumSize(700, 900)
@@ -600,6 +602,8 @@ class TidypyWindow(QMainWindow):
             QMessageBox.warning(self, "Validation Error", msg)
             return
         
+        self._analysis_start_time = time.time()
+        
         config = self._build_config()
         self.current_config = config
         
@@ -787,7 +791,13 @@ class TidypyWindow(QMainWindow):
             for error in self.worker_errors:
                 self._on_log(-1, f"⚠️ {error}")
         
-        self._on_log(-1, f"✓ Complete: {self.total_games_processed} games, {self.total_positions_analyzed} positions")
+        elapsed = time.time() - self._analysis_start_time
+        if elapsed >= 60:
+            elapsed_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+        else:
+            elapsed_str = f"{int(elapsed)}s"
+            
+        self._on_log(-1, f"✓ Complete: {self.total_games_processed} games, {self.total_positions_analyzed} positions in {elapsed_str}")
         self._on_log(-1, "═" * 60)
         
         # Update UI
@@ -803,10 +813,20 @@ class TidypyWindow(QMainWindow):
                 f"Check the log for details."
             )
         else:
+            output_locations = []
+            if config.pgn_enabled and config.output_pgn:
+                output_locations.append(f"  - {config.output_pgn.name}")
+            if config.bin_enabled and config.output_bin:
+                output_locations.append(f"  - {config.output_bin.name}")
+            
+            output_str = "\n".join(output_locations)
+
             QMessageBox.information(
                 self, "Complete",
                 f"Successfully processed {self.total_games_processed} games.\n"
-                f"Analyzed {self.total_positions_analyzed} positions."
+                f"Analyzed {self.total_positions_analyzed} positions.\n"
+                f"Time elapsed: {elapsed_str}\n\n"
+                f"Output saved to:\n{output_str}"
             )
         
         # Clear workers
