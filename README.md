@@ -69,6 +69,20 @@ It scans a PGN file, jumps to **Move 7** for example, analyzes the position, gra
 6.  **Your Database:**  Lichess Elite Database by Nikonoe, Lumbra's Gigabase, Cassandra DB, OpeningTree.org, CCRL computer chess archive, FICS, Create an engine tournament, or Create one with Norman Polock Position Tool in Lucas Chess for example.
 7.  **PGN Output Cleaning:** Some GUI have bugs, or just don't work as expected on import.  You may want to take the PGN outputs, and import them first creating a new Database, SCID prefers to convert the PGN before the GUI Book tool is run.  Other GUI tools want to convert/create a SQLite table first.  My output is ISO Standard, so Meh. BUT Most parsers are lazy and won't do more then one variation, or will settle on mainline only.  Luckily my tool overwrites mainline, so we capture most there.  TODO is create a .bin polyglot creation button to ensure full Uniform ingestion.    
 
+
+**Engine Depth |	Approx ELO	|  Typical Time**
+
+8	~2000	_ under (0.1) sec *note that most NNUE and .book will play 3000+ ELO moves, statistically most best moves are found.  
+
+12	 ~2400  	_(0.1-0.3) sec   
+
+16	 ~2650  	_(0.3-1.0) sec
+
+20	 ~2800  	_(1-5) sec  *a Montecarlo engine like Komodo will find some nice replies at 2.5-3 seconds.
+
+24	 ~2900  	_(5-30) sec
+
+
 ---
 
 ## 🛠️ Developer Setup
