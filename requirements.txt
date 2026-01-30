@@ -1,0 +1,5 @@
+python-chess>=1.10.0
+PyQt6>=6.6.0
+qt-material>=2.14
+pyinstaller>=6.0.0
+psutil>=5.9.0
