@@ -1,19 +1,21 @@
-"""UCI Engine Configuration Dialog."""
+"""UCI Engine Configuration Dialog - Bulletproof Edition."""
+
+import sys
+import subprocess
+from pathlib import Path
+from typing import Dict, Any
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
     QSpinBox, QCheckBox, QLineEdit, QComboBox, QPushButton,
     QFormLayout, QFileDialog, QScrollArea, QWidget, QMessageBox
 )
 from PyQt6.QtCore import Qt
-import subprocess
-import os
-from typing import Dict, Any, Optional
-from pathlib import Path
 
 
 class UCIConfigDialog(QDialog):
     """Dialog for configuring UCI engine options."""
+    
     # Options to always skip (never display)
     SKIP_OPTIONS = {'Ponder', 'UCI_Chess960', 'UCI_ShowWDL', 'UCI_LimitStrength'}
     
@@ -37,13 +39,21 @@ class UCIConfigDialog(QDialog):
     def _load_engine(self) -> None:
         """Parse 'uci' output from engine to get all available options."""
         if not self.engine_path.exists():
-            QMessageBox.warning(self, "Engine Not Found", f"Could not find engine at:\n{self.engine_path}")
+            QMessageBox.warning(
+                self, 
+                "Engine Not Found", 
+                f"Could not find engine at:\n{self.engine_path}"
+            )
             return
 
         try:
-            info = subprocess.STARTUPINFO()
-            info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            info.wShowWindow = subprocess.SW_HIDE
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
+            creationflags = 0
+            if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+                creationflags = subprocess.CREATE_NO_WINDOW
 
             proc = subprocess.Popen(
                 str(self.engine_path),
@@ -51,98 +61,159 @@ class UCIConfigDialog(QDialog):
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                startupinfo=info,
-                creationflags=subprocess.CREATE_NO_WINDOW if 'CREATE_NO_WINDOW' in dir(subprocess) else 0
+                startupinfo=startupinfo,
+                creationflags=creationflags
             )
 
             try:
                 stdout, stderr = proc.communicate("uci\n", timeout=5.0)
             except subprocess.TimeoutExpired:
                 proc.kill()
+                proc.communicate()  # Clean up
                 QMessageBox.warning(
-                    self, "Engine Timeout",
-                    f"The engine '{self.engine_path.name}' did not respond within 5 seconds.\n"
-                    "It may be incompatible, not a valid UCI engine, or require a specific instruction set."
+                    self, 
+                    "Engine Timeout",
+                    f"The engine '{self.engine_path.name}' did not respond within 5 seconds.\n\n"
+                    "Possible causes:\n"
+                    "• Not a UCI-compliant engine (might be WinBoard/XBoard)\n"
+                    "• Incompatible CPU instruction set (AVX2/AVX-512)\n"
+                    "• Engine requires additional files or configuration\n\n"
+                    "The engine may still work with default settings."
                 )
                 return
 
             output = stdout.splitlines()
             
+            # Check for uciok response
             if not any(line.strip() == "uciok" for line in output):
                 QMessageBox.warning(
-                    self, "Invalid UCI Engine",
-                    f"The engine '{self.engine_path.name}' did not respond with 'uciok'.\n"
-                    "Please ensure it is a standard UCI-compliant engine."
+                    self, 
+                    "Invalid UCI Engine",
+                    f"The engine '{self.engine_path.name}' did not respond with 'uciok'.\n\n"
+                    "Please ensure it is a standard UCI-compliant engine.\n\n"
+                    "The engine may still work with default settings."
                 )
-                # Still try to parse what we got, might have partial info
+                # Continue anyway - try to parse what we got
             
+            # Parse engine output
             for line in output:
                 line = line.strip()
                 if not line:
                     continue
 
+                # Get engine name
                 if line.startswith("id name"):
                     self.engine_name = line[len("id name"):].strip()
-                elif line.startswith("option name"):
-                    try:
-                        name_part, rest_part = line.split(" type ", 1)
-                        name = name_part[len("option name "):].strip()
-                        
-                        parts = rest_part.split()
-                        opt_type = parts[0]
-                        
-                        rest = parts[1:]
-                        default, min_val, max_val = None, None, None
-                        variables = []
-
-                        if "default" in rest:
-                            default_idx = rest.index("default")
-                            
-                            end_idx = len(rest)
-                            for token in ["min", "var"]:
-                                if token in rest[default_idx:]:
-                                    try:
-                                        end_idx = min(end_idx, rest.index(token, default_idx))
-                                    except ValueError:
-                                        continue
-                            
-                            default = " ".join(rest[default_idx + 1 : end_idx])
-                            if default == "<empty>": default = ""
-                            
-                            rem = rest[end_idx:]
-                        else:
-                            rem = rest
-
-                        if "min" in rem and "max" in rem:
-                            min_val = int(rem[rem.index("min") + 1])
-                            max_val = int(rem[rem.index("max") + 1])
-                        
-                        var_values = []
-                        for i, token in enumerate(rem):
-                            if token == "var":
-                                value_tokens = []
-                                for j in range(i + 1, len(rem)):
-                                    if rem[j] == "var":
-                                        break
-                                    value_tokens.append(rem[j])
-                                if value_tokens:
-                                    var_values.append(" ".join(value_tokens))
-                        variables = var_values
-                        
-                        self._engine_options[name] = {
-                            'type': opt_type, 'default': default, 'min': min_val,
-                            'max': max_val, 'var': variables
-                        }
-
-                    except (ValueError, IndexError) as e:
-                        print(f"Could not parse UCI option: {line} ({e})", file=os.sys.stderr)
-                        continue
+                    continue
+                
+                # Parse options
+                if line.startswith("option name"):
+                    self._parse_option_line(line)
         
+        except FileNotFoundError:
+            QMessageBox.critical(
+                self, 
+                "Engine Not Found",
+                f"Could not execute engine:\n{self.engine_path}\n\n"
+                "The file may be missing or not executable."
+            )
+        except PermissionError:
+            QMessageBox.critical(
+                self, 
+                "Permission Denied",
+                f"Cannot execute engine:\n{self.engine_path}\n\n"
+                "Check file permissions."
+            )
         except Exception as e:
             QMessageBox.critical(
-                self, "Engine Load Error",
-                f"An unexpected error occurred while loading the engine:\n\n{e}"
+                self, 
+                "Engine Load Error",
+                f"Unexpected error loading engine:\n\n{type(e).__name__}: {e}"
             )
+
+    def _parse_option_line(self, line: str) -> None:
+        """Parse a single UCI option line with maximum fault tolerance."""
+        try:
+            # Basic structure: "option name <name> type <type> [default <val>] [min <val>] [max <val>] [var <val>]*"
+            if " type " not in line:
+                return
+                
+            name_part, rest_part = line.split(" type ", 1)
+            name = name_part[len("option name "):].strip()
+            
+            if not name:
+                return
+            
+            parts = rest_part.split()
+            if not parts:
+                return
+                
+            opt_type = parts[0].lower()
+            
+            # Skip button type options
+            if opt_type == 'button':
+                return
+            
+            # Initialize option dict
+            option = {
+                'type': opt_type,
+                'default': None,
+                'min': None,
+                'max': None,
+                'var': []
+            }
+            
+            # Parse tokens
+            tokens = parts[1:]
+            i = 0
+            while i < len(tokens):
+                token = tokens[i].lower()
+                
+                if token == 'default' and i + 1 < len(tokens):
+                    # Collect default value (may be multi-word for strings)
+                    default_parts = []
+                    i += 1
+                    while i < len(tokens) and tokens[i].lower() not in ('min', 'max', 'var'):
+                        default_parts.append(tokens[i])
+                        i += 1
+                    option['default'] = ' '.join(default_parts) if default_parts else None
+                    if option['default'] == '<empty>':
+                        option['default'] = ''
+                    continue
+                    
+                elif token == 'min' and i + 1 < len(tokens):
+                    try:
+                        option['min'] = int(tokens[i + 1])
+                    except ValueError:
+                        pass
+                    i += 2
+                    continue
+                    
+                elif token == 'max' and i + 1 < len(tokens):
+                    try:
+                        option['max'] = int(tokens[i + 1])
+                    except ValueError:
+                        pass
+                    i += 2
+                    continue
+                    
+                elif token == 'var' and i + 1 < len(tokens):
+                    # Collect var value (may be multi-word)
+                    var_parts = []
+                    i += 1
+                    while i < len(tokens) and tokens[i].lower() != 'var':
+                        var_parts.append(tokens[i])
+                        i += 1
+                    if var_parts:
+                        option['var'].append(' '.join(var_parts))
+                    continue
+                
+                i += 1
+            
+            self._engine_options[name] = option
+            
+        except Exception as e:
+            print(f"[UCI Parse Warning] Could not parse: {line[:80]}... ({e})", file=sys.stderr)
     
     def _setup_ui(self):
         """Build UI dynamically from engine options."""
@@ -201,6 +272,19 @@ class UCIConfigDialog(QDialog):
             
             scroll_layout.addWidget(behavior_group)
         
+        # Show message if no options found
+        if not resource_opts and not behavior_opts:
+            from PyQt6.QtWidgets import QLabel
+            no_opts_label = QLabel(
+                "No configurable options found.\n\n"
+                "This engine may:\n"
+                "• Not report UCI options\n"
+                "• Use non-standard UCI format\n"
+                "• Work fine with default settings"
+            )
+            no_opts_label.setWordWrap(True)
+            scroll_layout.addWidget(no_opts_label)
+        
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
@@ -226,46 +310,81 @@ class UCIConfigDialog(QDialog):
         self.setMinimumWidth(450)
 
     def _create_widget_for_option(self, name: str, opt: dict) -> QWidget | None:
-        """Create appropriate widget for UCI option type."""
+        """Create appropriate widget for UCI option type - bulletproof version."""
         opt_type = opt.get('type', 'string')
         default = opt.get('default')
         current = self._current_settings.get(name, default)
         
         if opt_type == 'spin':
             widget = QSpinBox()
-            widget.setMinimum(opt.get('min', 0))
-            widget.setMaximum(opt.get('max', 999999))
+            
+            # Safely extract min/max with bulletproof fallbacks
+            min_val = opt.get('min')
+            max_val = opt.get('max')
+            
+            # Handle None, missing, or invalid values
             try:
-                widget.setValue(int(current) if current is not None else int(default or 0))
+                min_val = int(min_val) if min_val is not None else -999999
             except (ValueError, TypeError):
-                widget.setValue(int(default or 0))
+                min_val = -999999
+                
+            try:
+                max_val = int(max_val) if max_val is not None else 999999
+            except (ValueError, TypeError):
+                max_val = 999999
+            
+            # Sanity check: ensure min <= max
+            if min_val > max_val:
+                min_val, max_val = -999999, 999999
+            
+            widget.setMinimum(min_val)
+            widget.setMaximum(max_val)
+            
+            # Determine value to display (priority: current setting > default > 0)
+            value_to_set = 0
+            for candidate in (current, default, 0):
+                try:
+                    value_to_set = int(candidate) if candidate is not None else 0
+                    break
+                except (ValueError, TypeError):
+                    continue
+            
+            # Clamp to valid range
+            value_to_set = max(min_val, min(max_val, value_to_set))
+            widget.setValue(value_to_set)
+            
             return widget
             
         elif opt_type == 'check':
             widget = QCheckBox()
+            # Handle various boolean representations
             if isinstance(current, bool):
                 widget.setChecked(current)
             elif isinstance(current, str):
-                widget.setChecked(current.lower() == 'true')
+                widget.setChecked(current.lower() in ('true', '1', 'yes', 'on'))
+            elif isinstance(default, str):
+                widget.setChecked(default.lower() in ('true', '1', 'yes', 'on'))
             else:
-                widget.setChecked(str(default).lower() == 'true' if default else False)
+                widget.setChecked(bool(default) if default else False)
             return widget
             
         elif opt_type == 'combo':
             widget = QComboBox()
             options = opt.get('var', [])
-            widget.addItems(options)
-            if current in options:
-                widget.setCurrentText(str(current))
-            elif default in options:
-                widget.setCurrentText(str(default))
+            if options:
+                widget.addItems(options)
+                if current and str(current) in options:
+                    widget.setCurrentText(str(current))
+                elif default and str(default) in options:
+                    widget.setCurrentText(str(default))
             return widget
             
         elif opt_type == 'string':
             widget = QLineEdit()
             widget.setText(str(current) if current else (str(default) if default else ''))
+            
             # Add browse button for path-like options
-            if 'path' in name.lower() or 'file' in name.lower():
+            if 'path' in name.lower() or 'file' in name.lower() or 'directory' in name.lower():
                 container = QWidget()
                 h_layout = QHBoxLayout(container)
                 h_layout.setContentsMargins(0, 0, 0, 0)
@@ -296,12 +415,17 @@ class UCIConfigDialog(QDialog):
             
             if isinstance(widget, QSpinBox):
                 try:
-                    widget.setValue(int(default) if default is not None else 0)
+                    val = int(default) if default is not None else 0
+                    val = max(widget.minimum(), min(widget.maximum(), val))
+                    widget.setValue(val)
                 except (ValueError, TypeError):
                     widget.setValue(0)
                     
             elif isinstance(widget, QCheckBox):
-                widget.setChecked(str(default).lower() == 'true' if default else False)
+                if isinstance(default, str):
+                    widget.setChecked(default.lower() in ('true', '1', 'yes', 'on'))
+                else:
+                    widget.setChecked(bool(default) if default else False)
                 
             elif isinstance(widget, QComboBox):
                 if default and default in [widget.itemText(i) for i in range(widget.count())]:
@@ -326,23 +450,25 @@ class UCIConfigDialog(QDialog):
             
             if isinstance(widget, QSpinBox):
                 value = widget.value()
-                # Only include if different from default
                 try:
-                    if value != int(default or 0):
+                    default_int = int(default) if default is not None else 0
+                    if value != default_int:
                         result[name] = value
                 except (ValueError, TypeError):
-                    if str(value) != str(default):
-                        result[name] = value
+                    result[name] = value
                     
             elif isinstance(widget, QCheckBox):
                 value = widget.isChecked()
-                default_bool = str(default).lower() == 'true' if default else False
+                if isinstance(default, str):
+                    default_bool = default.lower() in ('true', '1', 'yes', 'on')
+                else:
+                    default_bool = bool(default) if default else False
                 if value != default_bool:
                     result[name] = value
                     
             elif isinstance(widget, QComboBox):
                 value = widget.currentText()
-                if value != default:
+                if value and value != default:
                     result[name] = value
                     
             elif isinstance(widget, QLineEdit):

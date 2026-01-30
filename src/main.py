@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QLineEdit, QPushButton, QSpinBox, QDoubleSpinBox,
     QComboBox, QRadioButton, QButtonGroup, QCheckBox, QTextEdit,
-    QFileDialog, QMessageBox, QProgressBar
+    QFileDialog, QMessageBox, QProgressBar, QScrollArea
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
@@ -56,10 +56,20 @@ class TidypyWindow(QMainWindow):
     
     def _setup_ui(self) -> None:
         """Build the user interface."""
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setCentralWidget(scroll_area)
+
+        content_widget = QWidget()
+        content_widget.setMinimumWidth(600)
+        scroll_area.setWidget(content_widget)
+        
+        layout = QVBoxLayout(content_widget)
         layout.setSpacing(10)
+        # left, top, right, bottom
+        layout.setContentsMargins(10, 10, 10, 20)
         
         # 1. Engine Section
         layout.addWidget(self._create_engine_section())
@@ -84,6 +94,8 @@ class TidypyWindow(QMainWindow):
         
         # 8. Log Section
         layout.addWidget(self._create_log_section())
+        
+        layout.addStretch()
     
     def _create_engine_section(self) -> QGroupBox:
         """Create engine configuration section."""
@@ -434,32 +446,41 @@ class TidypyWindow(QMainWindow):
             self._open_uci_dialog(Path(path))
     
     def _open_uci_dialog(self, path: Path) -> None:
-        """Open UCI configuration dialog."""
-        dialog = UCIConfigDialog(path, self)
+        """Open UCI configuration dialog with error handling."""
+        try:
+            dialog = UCIConfigDialog(path, self)
+            
+            if dialog.exec():
+                self.uci_options = dialog.get_uci_options()
+                self.engine_name = dialog.get_engine_name()
+                
+                # Update UI
+                self.engine_config_btn.setEnabled(True)
+                
+                # Show engine info
+                info_parts = [self.engine_name]
+                if 'Hash' in self.uci_options:
+                    info_parts.append(f"Hash: {self.uci_options['Hash']}MB")
+                if 'Threads' in self.uci_options:
+                    info_parts.append(f"Threads: {self.uci_options['Threads']}")
+                
+                self.engine_info.setText(" │ ".join(info_parts))
+                self.engine_info.setStyleSheet("color: #4CAF50;")
+            else:
+                # User cancelled - clear engine selection if none previously
+                if not self.engine_name:
+                    self.engine_path.clear()
+                    self.engine_info.setText("No engine selected")
+                    self.engine_info.setStyleSheet("color: gray; font-style: italic;")
+                    self.engine_config_btn.setEnabled(False)
         
-        if dialog.exec():
-            self.uci_options = dialog.get_uci_options()
-            self.engine_name = dialog.get_engine_name()
-            
-            # Update UI
-            self.engine_config_btn.setEnabled(True)
-            
-            # Show engine info
-            info_parts = [self.engine_name]
-            if 'Hash' in self.uci_options:
-                info_parts.append(f"Hash: {self.uci_options['Hash']}MB")
-            if 'Threads' in self.uci_options:
-                info_parts.append(f"Threads: {self.uci_options['Threads']}")
-            
-            self.engine_info.setText(" │ ".join(info_parts))
-            self.engine_info.setStyleSheet("color: #4CAF50;")
-        else:
-            # User cancelled - clear engine selection if none previously
-            if not self.engine_name:
-                self.engine_path.clear()
-                self.engine_info.setText("No engine selected")
-                self.engine_info.setStyleSheet("color: gray; font-style: italic;")
-                self.engine_config_btn.setEnabled(False)
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "UCI Configuration Error",
+                f"Could not configure engine options:\n\n{type(e).__name__}: {e}\n\n"
+                "The engine may still work with default settings."
+            )
     
     def _configure_engine(self) -> None:
         """Re-open UCI configuration dialog."""
